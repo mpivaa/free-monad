@@ -1,20 +1,19 @@
-(ns user)
+(ns user
+  (:require [cats.core :as m]))
 (require '[free-monad.core :refer :all])
 (require '[clojure.string :as str])
 (require '[clj-http.client :as client])
 (require '[clojure.data.json :as json])
+(require '[cats.core :as m])
+
+(defcmd Tell [text])
+(defcmd Ask [question])
+(defcmd SearchMovies [title])
 
 (def pgr (m/mlet [name (Ask. "Tell me a joke")
                   _    [(Tell. (str "Your joke: " name))
                         (Tell. "Bye")]]
                  (m/return name)))
-
-(defcmd Tell [text])
-
-(defcmd Ask [question])
-
-(defcmd SearchMovies [title])
-
 
 (def url "https://api.themoviedb.org/3/search/movie?api_key=b5efb835d4322ffdd907d19fe581fc48")
 (def fake-db (atom {:movies [{:title "Harry Potter" :vote_count 1000}
@@ -55,18 +54,19 @@
         client/get
         adapt-result)))
 
-(def program1
-  (Bind. (Ask. "What's your name")
-         (fn [name]
-           (Bind. (Tell. (str "Hi, " name))
-                  (fn [_] (Tell. "I'm you computer, and I'm alive!"))))))
+(comment
+  (def program1
+    (Bind. (Ask. "What's your name")
+          (fn [name]
+            (Bind. (Tell. (str "Hi, " name))
+                   (fn [_] (Tell. "I'm you computer, and I'm alive!")))))))
 
 (def program3
   (m/mlet [name (Ask. "What's your name")
            _    (Tell. (str "Hi, " name))
            _    (Tell. "I'm your computer, and I'm aliiiiiive!")
            resp (Ask. "Are you a computer too (s/n)?")
-           const (Pure. "const")
+           const (pure "const")
            _    (Tell. const)
            _    (if (= resp "s")
                   (Tell. "Let's make a revolution")
@@ -78,7 +78,7 @@
 (def movie-search
   (m/mlet [title    (Ask. "Give me a movie title")
            movies   (SearchMovies. title)
-           most-pop (Pure. (get-most-popular movies))
+           most-pop (pure (get-most-popular movies))
            _        (Tell. "\nMost popular\n")
            _        (Tell. (format-list most-pop))]))
 (comment
@@ -88,7 +88,7 @@
 (def name-pgr
   (m/mlet [first-name (Ask. "What's your first name")
            last-name  (Ask. "What's your last name")
-           full-name  (Pure. (str first-name " " last-name))
+           full-name  (pure (str first-name " " last-name))
            _          (Tell. (str "Full name: " full-name))]))
 
 (comment
@@ -98,8 +98,65 @@
       (if (authorize? purchase account)
         (do
           (db/insert-transaction! purchase account db)
-          (logger/log "Authorized transaction" transaction logger)
+          (logger/log "Authorized purchase" purchase logger)
           {:authorized true})
         (do
-          (logger/log "Denied transaction" transaction logger)
+          (logger/log "Denied purchase" purchase logger)
           {:authorized false})))))
+
+(defcmd InsertTransaction [transaction account])
+(defcmd Log [reason any])
+(defcmd FindAccount [account-id])
+
+(defn authorize? [purchase account] (< (:amount purchase) 100))
+
+(defn purchase
+  [purchase account-id]
+  (m/mlet [account        (->FindAccount account-id)
+           is-authorized? (pure (authorize? purchase account))
+           _              (if is-authorized?
+                            [(->InsertTransaction purchase account)
+                             (->Log "Authorized purchase" purchase)]
+                            (->Log "Denied purchase" purchase))]
+     (m/return {:authorized is-authorized?})))
+
+(defn test-valid-purchase []
+  (def effects (atom []))
+  (defimpl testImpl
+    (InsertTransaction [transaction account]
+                       (swap! effects conj (->InsertTransaction transaction account))
+                       {:id (:id account)})
+
+    (Log [reason any]
+         (swap! effects conj (->Log reason any))
+         nil)
+
+    (FindAccount [account-id]
+                 (swap! effects conj (->FindAccount account-id))
+                 {:id account-id}))
+
+
+  (assert (run-free (purchase {:amount 50} 1) testImpl) {:authorized true})
+  (assert (= @effects [(->FindAccount 1)
+                       (->InsertTransaction {:amount 50} {:id 1})
+                       (->Log "Authorized purchase" {:amount 50})])))
+
+(defn test-invalid-purchase []
+  (def effects (atom []))
+  (defimpl testImpl
+    (InsertTransaction [transaction account]
+                       (swap! effects conj (->InsertTransaction transaction account))
+                       {:id (:id account)})
+
+    (Log [reason any]
+         (swap! effects conj (->Log reason any))
+         nil)
+
+    (FindAccount [account-id]
+                 (swap! effects conj (->FindAccount account-id))
+                 {:id account-id}))
+
+
+  (assert (run-free (purchase {:amount 150} 1) testImpl) {:authorized false})
+  (assert (= @effects [(->FindAccount 1)
+                       (->Log "Denied purchase" {:amount 150})])))

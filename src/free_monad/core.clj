@@ -13,6 +13,9 @@
   p/Contextual
   (-get-context [_] free))
 
+(def pure ->Pure)
+(def bind ->Bind)
+
 (def free
   (reify
     p/Context
@@ -33,9 +36,11 @@
           (Bind. mv f))))))
 
 (defmacro defcmd [name bindings]
-  `(defrecord ~name ~bindings
-     p/Contextual
-     (-get-context [_] free)))
+  `(do
+    (defrecord ~name ~bindings
+      p/Contextual
+      (-get-context [_] free))
+    (def ~(-> name str/lower-case symbol) ~(symbol (str "->" name)))))
 
 (defmacro defimpl [name & impls]
   (let [forms (mapv (fn [[type bindings & body]]
