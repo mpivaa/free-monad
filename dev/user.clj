@@ -20,15 +20,6 @@
                              {:title "The Lord of the Rings" :vote_count 1500}
                              {:title "Star Wars" :vote_count 1100}]}))
 
-(defimpl testImpl
-  (Tell [t] (println t))
-  (Ask [q] (do (println q)
-               (read-line)))
-
-  (SearchMovies [title]
-    [{:title "Harry Potter" :vote_count 10}
-     {:title "The Lord of the Rings" :vote_count 20}]))
-
 (defimpl inMemmoryImpl
   (Tell [t] (println t))
   (Ask [q] (do (println q)
@@ -53,24 +44,6 @@
     (-> (str url "&query=" title)
         client/get
         adapt-result)))
-
-(comment
-  (def program1
-    (Bind. (Ask. "What's your name")
-          (fn [name]
-            (Bind. (Tell. (str "Hi, " name))
-                   (fn [_] (Tell. "I'm you computer, and I'm alive!")))))))
-
-(def program3
-  (m/mlet [name (Ask. "What's your name")
-           _    (Tell. (str "Hi, " name))
-           _    (Tell. "I'm your computer, and I'm aliiiiiive!")
-           resp (Ask. "Are you a computer too (s/n)?")
-           const (pure "const")
-           _    (Tell. const)
-           _    (if (= resp "s")
-                  (Tell. "Let's make a revolution")
-                  (Tell. "We are coming for you!"))]))
 
 (def get-most-popular #(sort-by :vote_count > %))
 (defn format-list [list] (str/join "\n" (map :title list)))
@@ -113,28 +86,30 @@
 (defn purchase
   [purchase account-id]
   (m/mlet [account        (->FindAccount account-id)
-           is-authorized? (pure (authorize? purchase account))
-           _              (if is-authorized?
-                            [(->InsertTransaction purchase account)
-                             (->Log "Authorized purchase" purchase)]
-                            (->Log "Denied purchase" purchase))]
-     (m/return {:authorized is-authorized?})))
+           authorized? (pure (authorize? purchase account))
+           _           (if authorized?
+                         [(->InsertTransaction purchase account
+                           (->Log "Authorized purchase" purchase))]
+                         (->Log "Denied purchase" purchase))]
+     (m/return {:authorized authorized?})))
 
 (defn test-valid-purchase []
   (def effects (atom []))
   (defimpl testImpl
-    (InsertTransaction [transaction account]
-                       (swap! effects conj (->InsertTransaction transaction account))
-                       {:id (:id account)})
+    (InsertTransaction
+     [transaction account]
+     (swap! effects conj (->InsertTransaction transaction account))
+     {:id (:id account)})
 
-    (Log [reason any]
-         (swap! effects conj (->Log reason any))
-         nil)
+    (Log
+     [reason any]
+     (swap! effects conj (->Log reason any))
+     nil)
 
-    (FindAccount [account-id]
-                 (swap! effects conj (->FindAccount account-id))
-                 {:id account-id}))
-
+    (FindAccount
+     [account-id]
+     (swap! effects conj (->FindAccount account-id))
+     {:id account-id}))
 
   (assert (run-free (purchase {:amount 50} 1) testImpl) {:authorized true})
   (assert (= @effects [(->FindAccount 1)
