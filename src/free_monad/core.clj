@@ -29,22 +29,24 @@
       (Pure. v))
 
     (-mbind [_ mv f]
-      (let [{val :val g :f} mv]
-        (condp = (type mv)
-          Pure (f val)
-          Bind (Bind. val (comp #(m/bind % f) g))
-          (Bind. mv f))))))
+      (condp = (type mv)
+        Pure (f (:val mv))
+        Bind (Bind. (:val mv) (comp #(m/bind % f) (:f mv)))
+        (Bind. mv f)))))
 
 (defmacro defeffect [name bindings]
   `(defrecord ~name ~bindings
      p/Contextual
      (-get-context [_] free)))
 
-(defmacro defimpl [name & impls]
-  (let [forms (mapv (fn [[type bindings & body]]
-                        [type `(fn [~@bindings] ~@body)])
-                    impls)]
-    `(def ~name ~forms)))
+(defn build-impl [bindings impls]
+  (mapv (fn [[type bindings & body]]
+          [type `(fn [~@bindings] ~@body)])
+        impls))
+
+(defmacro defimpl [name bindings & forms]
+  (let [impl (build-impl bindings forms)]
+    `(defn ~name ~bindings ~impl)))
 
 (defn run-effect
   [effect impl]
@@ -54,13 +56,32 @@
     (effect-impl effect)
     (throw (Exception. (str "Implementation not defined for " (type effect))))))
 
-(defn run-free
+(defn run-program
   [{:keys [val f] :as free} impl]
   (condp = (type free)
     nil nil
     Pure val
     Bind (-> (if (vector? val)
-               (mapv #(run-effect % impl) val)
-               (run-effect val impl))
+               (mapv #(run-program % impl) val)
+               (run-program val impl))
              f
-             (run-free impl))))
+             (run-program impl))
+    (run-effect free impl)))
+
+(defmacro defprogram [name args bindings & body]
+  `(defn ~name ~args
+     (m/mlet ~bindings ~@body)))
+
+(defn log-effect! [effects effect]
+  (swap! effects conj effect))
+
+(defn tapd [m] (Bind. m (fn [v] (prn v) (Pure. v))))
+
+(defn logged-impl [impl]
+  (let [effects (atom [])
+        new-impl (mapv (fn [[t f]]
+                         [t (fn [effect & args]
+                             (log-effect! effects effect)
+                             (apply f effect args))])
+                       impl)]
+    [effects new-impl]))

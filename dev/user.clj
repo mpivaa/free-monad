@@ -48,12 +48,13 @@
 (def get-most-popular #(sort-by :vote_count > %))
 (defn format-list [list] (str/join "\n" (map :title list)))
 
-(def movie-search
-  (m/mlet [title    (Ask. "Give me a movie title")
-           movies   (SearchMovies. title)
-           most-pop (pure (get-most-popular movies))
-           _        (Tell. "\nMost popular\n")
-           _        (Tell. (format-list most-pop))]))
+(defprogram movie-search []
+  [title    (Ask. "Give me a movie title")
+   movies   (SearchMovies. title)
+   most-pop (pure (get-most-popular movies))
+   _        (Tell. "\nMost popular\n")
+   _        (Tell. (format-list most-pop))])
+
 (comment
   (run-free movie-search inMemmoryImpl)
   (run-free movie-search movieDbImpl))
@@ -83,39 +84,39 @@
 
 (defn authorize? [purchase account] (< (:amount purchase) 100))
 
-(defn purchase
+(defprogram purchase
   [purchase account-id]
-  (m/mlet [account     (->find-account account-id)
-           authorized? (pure (authorize? purchase account))
-           _           (if authorized?
-                         [(->insert-transaction purchase account)
-                          (->log "Authorized purchase" purchase)]
-                         (->log "Denied purchase" purchase))]
-     (m/return {:authorized authorized?})))
+  [account     (->find-account account-id)
+   authorized? (pure (authorize? purchase account))
+   _           (if authorized?
+                 [(->insert-transaction purchase account)
+                  (->log "Authorized purchase" purchase)]
+                 (->log "Denied purchase" purchase))]
+  (m/return {:authorized authorized?}))
 
 (defn test-valid-purchase []
   (def effects (atom []))
   (defimpl test-impl
     (insert-transaction
-     [{:keys [transaction account] :as effect}]
-     (swap! effects conj effect)
-     {:id (:id account)})
+      [{:keys [transaction account] :as effect}]
+      (swap! effects conj effect)
+      {:id (:id account)})
 
     (log
-     [{:keys [reason any] :as effect}]
-     (swap! effects conj effect)
-     nil)
+      [{:keys [reason any] :as effect}]
+      (swap! effects conj effect)
+      nil)
 
     (find-account
-     [{:keys [account-id] :as effect}]
-     (swap! effects conj effect)
-     {:id account-id}))
+      [{:keys [account-id] :as effect}]
+      (swap! effects conj effect)
+      {:id account-id}))
 
   (reset! effects [])
   (assert (run-free (purchase {:amount 50} 1) test-impl) {:authorized true})
-  (assert (= @effects [(->find-account 1)
-                       (->insert-transaction {:amount 50} {:id 1})
-                       (->log "Authorized purchase" {:amount 50})])))
+  (assert (= @effects [(->find-account 1)]
+                      (->insert-transaction {:amount 50} {:id 1})
+                      (->log "Authorized purchase" {:amount 50}))))
 
 ;; (defn test-invalid-purchase []
 ;;   (def effects (atom []))
