@@ -6,9 +6,9 @@
 (require '[clojure.data.json :as json])
 (require '[cats.core :as m])
 
-(defcmd Tell [text])
-(defcmd Ask [question])
-(defcmd SearchMovies [title])
+(defeffect Tell [text])
+(defeffect Ask [question])
+(defeffect SearchMovies [title])
 
 (def pgr (m/mlet [name (Ask. "Tell me a joke")
                   _    [(Tell. (str "Your joke: " name))
@@ -77,61 +77,62 @@
           (logger/log "Denied purchase" purchase logger)
           {:authorized false})))))
 
-(defcmd InsertTransaction [transaction account])
-(defcmd Log [reason any])
-(defcmd FindAccount [account-id])
+(defeffect insert-transaction [transaction account])
+(defeffect log [reason any])
+(defeffect find-account [account-id])
 
 (defn authorize? [purchase account] (< (:amount purchase) 100))
 
 (defn purchase
   [purchase account-id]
-  (m/mlet [account        (->FindAccount account-id)
+  (m/mlet [account     (->find-account account-id)
            authorized? (pure (authorize? purchase account))
            _           (if authorized?
-                         [(->InsertTransaction purchase account
-                           (->Log "Authorized purchase" purchase))]
-                         (->Log "Denied purchase" purchase))]
+                         [(->insert-transaction purchase account)
+                          (->log "Authorized purchase" purchase)]
+                         (->log "Denied purchase" purchase))]
      (m/return {:authorized authorized?})))
 
 (defn test-valid-purchase []
   (def effects (atom []))
-  (defimpl testImpl
-    (InsertTransaction
-     [transaction account]
-     (swap! effects conj (->InsertTransaction transaction account))
+  (defimpl test-impl
+    (insert-transaction
+     [{:keys [transaction account] :as effect}]
+     (swap! effects conj effect)
      {:id (:id account)})
 
-    (Log
-     [reason any]
-     (swap! effects conj (->Log reason any))
+    (log
+     [{:keys [reason any] :as effect}]
+     (swap! effects conj effect)
      nil)
 
-    (FindAccount
-     [account-id]
-     (swap! effects conj (->FindAccount account-id))
+    (find-account
+     [{:keys [account-id] :as effect}]
+     (swap! effects conj effect)
      {:id account-id}))
 
-  (assert (run-free (purchase {:amount 50} 1) testImpl) {:authorized true})
-  (assert (= @effects [(->FindAccount 1)
-                       (->InsertTransaction {:amount 50} {:id 1})
-                       (->Log "Authorized purchase" {:amount 50})])))
+  (reset! effects [])
+  (assert (run-free (purchase {:amount 50} 1) test-impl) {:authorized true})
+  (assert (= @effects [(->find-account 1)
+                       (->insert-transaction {:amount 50} {:id 1})
+                       (->log "Authorized purchase" {:amount 50})])))
 
-(defn test-invalid-purchase []
-  (def effects (atom []))
-  (defimpl testImpl
-    (InsertTransaction [transaction account]
-                       (swap! effects conj (->InsertTransaction transaction account))
-                       {:id (:id account)})
+;; (defn test-invalid-purchase []
+;;   (def effects (atom []))
+;;   (defimpl testImpl
+;;     (InsertTransaction [transaction account]
+;;                        (swap! effects conj (->InsertTransaction transaction account))
+;;                        {:id (:id account)})
 
-    (Log [reason any]
-         (swap! effects conj (->Log reason any))
-         nil)
+;;     (Log [reason any]
+;;          (swap! effects conj (->Log reason any))
+;;          nil)
 
-    (FindAccount [account-id]
-                 (swap! effects conj (->FindAccount account-id))
-                 {:id account-id}))
+;;     (FindAccount [account-id]
+;;                  (swap! effects conj (->FindAccount account-id))
+;;                  {:id account-id}))
 
 
-  (assert (run-free (purchase {:amount 150} 1) testImpl) {:authorized false})
-  (assert (= @effects [(->FindAccount 1)
-                       (->Log "Denied purchase" {:amount 150})])))
+;;   (assert (run-free (purchase {:amount 150} 1) testImpl) {:authorized false})
+;;   (assert (= @effects [(->FindAccount 1)
+;;                        (->Log "Denied purchase" {:amount 150})])))

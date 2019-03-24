@@ -35,12 +35,10 @@
           Bind (Bind. val (comp #(m/bind % f) g))
           (Bind. mv f))))))
 
-(defmacro defcmd [name bindings]
-  `(do
-    (defrecord ~name ~bindings
-      p/Contextual
-      (-get-context [_] free))
-    (def ~(-> name str/lower-case symbol) ~(symbol (str "->" name)))))
+(defmacro defeffect [name bindings]
+  `(defrecord ~name ~bindings
+     p/Contextual
+     (-get-context [_] free)))
 
 (defmacro defimpl [name & impls]
   (let [forms (mapv (fn [[type bindings & body]]
@@ -48,13 +46,13 @@
                     impls)]
     `(def ~name ~forms)))
 
-(defn run-expr
-  [cmd impl]
-  (if-let [cmd-impl (some #(when (= (type cmd) (first %))
-                              (second %))
+(defn run-effect
+  [effect impl]
+  (if-let [effect-impl (some #(when (= (type effect) (first %))
+                                    (second %))
                           impl)]
-    (apply cmd-impl (vals cmd))
-    (throw (Exception. (str "Implementation not defined for " (type cmd))))))
+    (effect-impl effect)
+    (throw (Exception. (str "Implementation not defined for " (type effect))))))
 
 (defn run-free
   [{:keys [val f] :as free} impl]
@@ -62,7 +60,7 @@
     nil nil
     Pure val
     Bind (-> (if (vector? val)
-               (mapv #(run-expr % impl) val)
-               (run-expr val impl))
+               (mapv #(run-effect % impl) val)
+               (run-effect val impl))
              f
              (run-free impl))))
