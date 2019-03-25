@@ -1,7 +1,8 @@
 (ns free-monad.core
   (:require [clojure.string :as str]
             [cats.core :as m]
-            [cats.protocols :as p]))
+            [cats.protocols :as p]
+            [clojure.pprint :as pprint]))
 
 (declare free)
 
@@ -35,13 +36,15 @@
         (Bind. mv f)))))
 
 (defmacro defeffect [name bindings]
-  `(defrecord ~name ~bindings
-     p/Contextual
-     (-get-context [_] free)))
+  `(do
+     (defrecord ~name ~bindings
+      p/Contextual
+      (-get-context [_] free))
+     (def ~(symbol (str name "!")) ~(symbol (str "->" name)))))
 
 (defn build-impl [bindings impls]
-  (mapv (fn [[type bindings & body]]
-          [type `(fn [~@bindings] ~@body)])
+  (mapv (fn [[t bindings & body]]
+          [t `(fn ~t [~@bindings] ~@body)])
         impls))
 
 (defmacro defimpl [name bindings & forms]
@@ -53,7 +56,7 @@
   (if-let [effect-impl (some #(when (= (type effect) (first %))
                                     (second %))
                           impl)]
-    (effect-impl effect)
+    (apply effect-impl effect (vals effect))
     (throw (Exception. (str "Implementation not defined for " (type effect))))))
 
 (defn run-program
@@ -80,8 +83,8 @@
 (defn logged-impl [impl]
   (let [effects (atom [])
         new-impl (mapv (fn [[t f]]
-                         [t (fn [effect & args]
-                             (log-effect! effects effect)
-                             (apply f effect args))])
+                         [t (fn [e & args]
+                             (log-effect! effects e)
+                             (apply f e args))])
                        impl)]
     [effects new-impl]))
