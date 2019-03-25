@@ -114,7 +114,7 @@
     (is (match? [(customer-by-cpf! (nth cpfs 0))
                  (flows-by-customer! customer)
                  (transact-flow! flow)
-                 (transact-flow! flow)
+                 (bureau-check! flow)
                  (notifications-by-flow! flow)
                  (notify! flow first-contact)]
                 @effects))))
